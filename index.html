@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Coaching Progress v2</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f9fafb; color: #1f2937; }
+
+        header { background: #15397F; color: #fff; padding: 20px 28px; }
+        header h1 { font-size: 1.5rem; font-weight: 700; }
+
+        main { padding: 24px 28px; }
+
+        /* Loading / error states */
+        #state-loading { display: flex; align-items: center; gap: 10px; color: #6b7280; padding: 40px 0; }
+        #state-error   { display: none; background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 16px; color: #b91c1c; }
+        #state-table   { display: none; }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .spinner { width: 20px; height: 20px; border: 3px solid #e5e7eb; border-top-color: #15397F; border-radius: 50%; animation: spin 0.7s linear infinite; flex-shrink: 0; }
+
+        /* Controls bar */
+        .controls { display: flex; align-items: center; gap: 16px; margin-bottom: 14px; flex-wrap: wrap; }
+        .controls h2 { font-size: 1rem; font-weight: 600; color: #374151; }
+        #client-count { font-size: 0.82rem; font-weight: 400; color: #9ca3af; margin-left: 6px; }
+        .controls select {
+            font-size: 0.82rem; border: 1px solid #d1d5db; border-radius: 4px;
+            padding: 5px 10px; background: #fff; cursor: pointer; color: #374151;
+        }
+        .legend { display: flex; gap: 14px; font-size: 0.75rem; color: #6b7280; margin-left: auto; }
+        .legend span { display: flex; align-items: center; gap: 5px; }
+
+        /* Table */
+        .table-wrap { overflow-x: auto; background: #fff; border: 1px solid #e5e7eb; border-radius: 6px; }
+        table { border-collapse: collapse; font-size: 0.82rem; }
+
+        th.fixed-th {
+            text-align: left; padding: 9px 14px; background: #f9fafb; color: #374151;
+            font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em;
+            border-bottom: 2px solid #e5e7eb; white-space: nowrap;
+        }
+        th.group-th {
+            text-align: center; padding: 6px 4px; font-size: 0.72rem; font-weight: 600; color: #fff;
+            border-left: 1px solid rgba(255,255,255,0.25); border-bottom: 1px solid #e5e7eb;
+            white-space: nowrap;
+        }
+        th.session-th {
+            text-align: center; padding: 4px 3px; font-size: 0.7rem; color: #6b7280; font-weight: 600;
+            min-width: 36px; border-left: 1px solid #f0f0f0; border-bottom: 2px solid #e5e7eb;
+        }
+
+        td { padding: 8px 14px; border-bottom: 1px solid #f3f4f6; white-space: nowrap; color: #374151; }
+        td.session-td { text-align: center; padding: 4px 2px; min-width: 36px; border-left: 1px solid #f3f4f6; }
+        td.ks-prior { background: #f0fdf4; }
+
+        .tick       { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 4px; background: #dcfce7; color: #15803d; font-size: 0.75rem; font-weight: 700; }
+        .dot        { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 4px; background: #fef3c7; color: #92400e; font-size: 1.1rem; line-height: 1; }
+        .count-done { display: inline-flex; align-items: center; justify-content: center; min-width: 26px; height: 22px; border-radius: 4px; background: #dcfce7; color: #15803d; font-size: 0.75rem; font-weight: 700; padding: 0 4px; }
+        .count-book { display: inline-flex; align-items: center; justify-content: center; min-width: 26px; height: 22px; border-radius: 4px; background: #fef3c7; color: #92400e; font-size: 0.75rem; font-weight: 700; padding: 0 4px; }
+
+        tbody tr:nth-child(even) { background: #fafafa; }
+        tbody tr:hover { background: #eff6ff; }
+
+
+        th.group-th { cursor: pointer; }
+
+        th.session-th.expanded {
+            white-space: normal; min-width: 80px; max-width: 130px;
+            font-size: 0.65rem; line-height: 1.3; vertical-align: bottom;
+            padding: 6px 4px;
+        }
+
+        /* Tooltip */
+        #tooltip {
+            position: fixed; display: none; pointer-events: none;
+            background: #1f2937; color: #fff; font-size: 0.75rem;
+            padding: 5px 10px; border-radius: 4px; white-space: nowrap;
+            z-index: 9998; box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <h1>Coaching Progress Dashboard</h1>
+</header>
+
+<main>
+    <div id="state-loading">
+        <div class="spinner"></div>
+        <span>Loading clients…</span>
+    </div>
+
+    <div id="state-error"></div>
+
+    <div id="state-table">
+        <div class="controls">
+            <h2>Packaged Clients <span id="client-count"></span></h2>
+            <select id="filter-location" onchange="applyFilter(document.getElementById('filter-senior').value)">
+                <option value="">All Locations</option>
+            </select>
+            <select id="filter-senior" onchange="applyFilter(this.value)">
+                <option value="">All Seniors</option>
+            </select>
+            <button onclick="clearFilters()" style="font-size:0.82rem;border:1px solid #d1d5db;border-radius:4px;padding:5px 10px;background:#fff;cursor:pointer;color:#6b7280;">Clear filters</button>
+            <div class="legend">
+                <span><span class="tick" style="width:16px;height:16px;font-size:0.65rem">✓</span> Completed</span>
+                <span><span class="dot"  style="width:16px;height:16px;font-size:0.9rem">·</span> Booked</span>
+            </div>
+        </div>
+
+        <div class="table-wrap">
+            <table id="main-table">
+                <thead id="t-head"></thead>
+                <tbody id="t-body"></tbody>
+            </table>
+        </div>
+    </div>
+</main>
+
+<div id="tooltip"></div>
+
+
+<script>
+// ── Flow URL — paste your Power Automate HTTP trigger URL here ─────────────
+const CLIENTS_FLOW_URL = 'https://bb06665214b0e7c9957df91fc7a08e.c0.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/39e8f18f903e42bfa08bc10d561dbdba/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=1oNY5rscSrgUw7JN-JGuznJONp_gL3hucAnJGs8l3Fo';
+
+// ── Course groups ──────────────────────────────────────────────────────────
+const COURSE_GROUPS = [
+    { name: 'Business Alignment', color: '#1d4ed8', courses: [
+        'Business Alignment Part 1, Sweet Spot Assessment',
+        'Business Alignment Part 2, Top Clients & Wishlist Interviews',
+        'Business Alignment Part 3, AOI, USP, Tagline',
+        'Business Alignment Part 4, Systemisation Session 1',
+        'Business Alignment Part 5, Systemisation Session 2',
+    ]},
+    { name: 'Marketing', color: '#7c3aed', courses: [
+        'Marketing Part 1, Marketing Foundations',
+        'Marketing Part 2, Sales & Client Retention',
+    ]},
+    { name: 'Leadership 1', color: '#047857', courses: [
+        'Leadership and Culture Phase 1 Part 1, Setting Solid Foundations for Success',
+        'Leadership and Culture Phase 1 Part 2, Communication: Getting It Right',
+        'Leadership and Culture Phase 1 Part 3, Developing Emotional Intelligence',
+        'Leadership and Culture Phase 1 Part 4, Building Habits of Highly Successful Leaders',
+        'Leadership and Culture Phase 1 Part 5, Prioritisation: How to Focus When Everything Is Urgent',
+        'Leadership and Culture Phase 1 Part 6, Personal Brand Development',
+    ]},
+    { name: 'Leadership 2', color: '#065f46', courses: [
+        'Leadership and Culture Phase 2 Part 1, Mastering the Art of Effective Feedback',
+        'Leadership and Culture Phase 2 Part 2, Managing Continuing Underperformance',
+        'Leadership and Culture Phase 2 Part 3, How to Delegate Effectively',
+        'Leadership and Culture Phase 2 Part 4, How to Run Productive and Engaging Meetings',
+        'Leadership and Culture Phase 2 Part 5, How to Lead Change and Get Results',
+        'Leadership and Culture Phase 2 Part 6, How to Manage and Resolve Conflict',
+        'Leadership and Culture Phase 2 Part 7, How to Build a Culture of High Performance',
+        'Leadership and Culture Phase 2 Part 8, How to Create a Culture of Collaboration',
+        'Leadership and Culture Phase 2 Part 9, How to Create a Culture of Accountability',
+        'Leadership and Culture Phase 2 Part 10, How to Build and Maintain Relationships that Last',
+    ]},
+    { name: 'Leadership 3', color: '#14532d', courses: [
+        'Leadership and Culture Phase 3 Part 1, Coaching for Higher Performance',
+    ]},
+    { name: 'Stop the Chaos', color: '#b45309', courses: [
+        'Stop the Chaos, Own the Week',
+    ]},
+    { name: 'KickStart', color: '#9f1239', courses: [
+        'KickStart Week 1, Clarity & Identity',
+        'KickStart Week 2, Execution & Systems',
+        'KickStart Week 3, Mindset',
+    ]},
+];
+
+const ALL_COURSES = COURSE_GROUPS.flatMap(function(g) { return g.courses; });
+
+var courseGroupIdx    = [];
+COURSE_GROUPS.forEach(function(g, gi) { g.courses.forEach(function() { courseGroupIdx.push(gi); }); });
+
+var kickstartGroupIdx = COURSE_GROUPS.findIndex(function(g) { return g.name === 'KickStart'; });
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function norm(str) { return String(str || '').trim().toLowerCase(); }
+
+function parseText(val) {
+    if (!val) return '';
+    if (typeof val === 'object') return val.Value || val.DisplayName || val.Title || '';
+    return String(val);
+}
+
+function escapeHtml(str) {
+    return String(str || '')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// ── Group expand state ────────────────────────────────────────────────────
+var groupHeaders = [];
+var expandedGroups = new Set();
+
+// ── Build table header (runs once) ─────────────────────────────────────────
+(function buildHeader() {
+    var thead = document.getElementById('t-head');
+
+    var r1 = thead.insertRow();
+    ['Client', 'Location', 'Package', 'Senior'].forEach(function(label) {
+        var th = document.createElement('th');
+        th.className = 'fixed-th';
+        th.rowSpan = 2;
+        th.textContent = label;
+        r1.appendChild(th);
+    });
+    ['Total Completed', 'Total Booked'].forEach(function(label) {
+        var th = document.createElement('th');
+        th.className = 'fixed-th';
+        th.rowSpan = 2;
+        th.style.textAlign = 'center';
+        th.style.whiteSpace = 'normal';
+        th.style.maxWidth = '85px';
+        th.textContent = label;
+        r1.appendChild(th);
+    });
+    COURSE_GROUPS.forEach(function(g, gi) {
+        var th = document.createElement('th');
+        th.className = 'group-th';
+        th.colSpan = g.courses.length;
+        th.style.background = g.color;
+        th.textContent = g.name + ' ▸';
+        th.addEventListener('click', function() { toggleGroup(gi); });
+        groupHeaders.push(th);
+        r1.appendChild(th);
+    });
+
+    var r2 = thead.insertRow();
+    COURSE_GROUPS.forEach(function(g, gi) {
+        g.courses.forEach(function(course, i) {
+            var th = document.createElement('th');
+            th.className = 'session-th grp-col-' + gi;
+            th.title = course;
+            th.textContent = i + 1;
+            th.dataset.shortName = course.split(',').pop().trim();
+            r2.appendChild(th);
+        });
+    });
+})();
+
+// ── Filter state ───────────────────────────────────────────────────────────
+var _dashData = null;
+
+function applyFilter(seniorFilter) {
+    if (!_dashData) return;
+    var clients     = _dashData.clients;
+    var completedMap = _dashData.completedMap;
+    var bookedMap    = _dashData.bookedMap;
+
+    var sf = (seniorFilter || '').trim();
+    var lf = (document.getElementById('filter-location').value || '').trim();
+    var filtered = clients
+        .filter(function(c) { return !sf || (c.Senior || '') === sf; })
+        .filter(function(c) { return !lf || parseText(c.Location) === lf; });
+
+    document.getElementById('t-body').innerHTML = filtered.map(function(c) {
+        var clientNorm = norm(c.Title);
+        var completed  = completedMap[clientNorm] || new Map();
+        var booked     = bookedMap[clientNorm]    || new Map();
+
+        var ksYear = new Date().getFullYear();
+
+        var doneCount   = 0;
+        var bookedCount = 0;
+
+        var sessionCells = ALL_COURSES.map(function(course, ci) {
+            var gi  = courseGroupIdx[ci];
+            var cls = 'session-td grp-col-' + gi;
+            var isKs = gi === kickstartGroupIdx;
+
+            var hasCompleted = completed.has(course);
+            var hasBooked    = booked.has(course);
+
+            if (isKs) {
+                if (hasCompleted) {
+                    var yr = parseInt((completed.get(course) || '').split('/')[2]) || 0;
+                    hasCompleted = yr === ksYear;
+                }
+                if (hasBooked) {
+                    var yr = parseInt((booked.get(course) || '').split('/')[2]) || 0;
+                    hasBooked = yr === ksYear;
+                }
+            }
+
+            if (hasCompleted) {
+                doneCount++;
+                var d = escapeHtml(completed.get(course) || '');
+                return '<td class="' + cls + '"><span class="tick" data-date="' + d + '" data-type="Completed">&#10003;</span></td>';
+            }
+            if (hasBooked) {
+                bookedCount++;
+                var d = escapeHtml(booked.get(course) || '');
+                return '<td class="' + cls + '"><span class="dot" data-date="' + d + '" data-type="Booked">&middot;</span></td>';
+            }
+            if (isKs && completed.has(course)) {
+                var prevDate = escapeHtml(completed.get(course) || '');
+                return '<td class="' + cls + ' ks-prior" title="Previously attended ' + prevDate + '"></td>';
+            }
+            return '<td class="' + cls + '"></td>';
+        }).join('');
+
+        return '<tr>'
+            + '<td>' + escapeHtml(c.Title)                + '</td>'
+            + '<td>' + escapeHtml(parseText(c.Location))  + '</td>'
+            + '<td>' + escapeHtml(parseText(c.Package))   + '</td>'
+            + '<td>' + escapeHtml(c.Senior || '')         + '</td>'
+            + '<td style="text-align:center">' + (doneCount   ? '<span class="count-done">' + doneCount   + '</span>' : '') + '</td>'
+            + '<td style="text-align:center">' + (bookedCount ? '<span class="count-book">' + bookedCount + '</span>' : '') + '</td>'
+            + sessionCells
+            + '</tr>';
+    }).join('');
+
+    var countEl = document.getElementById('client-count');
+    countEl.textContent = filtered.length + ' client' + (filtered.length !== 1 ? 's' : '')
+        + (sf ? ' · ' + sf : '');
+}
+
+// ── Flow fetch ─────────────────────────────────────────────────────────────
+async function callFlow(url) {
+    var res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status + ' ' + res.statusText);
+    return res.json();
+}
+
+// ── Load data ──────────────────────────────────────────────────────────────
+async function loadAll() {
+    if (!CLIENTS_FLOW_URL) {
+        document.getElementById('state-loading').innerHTML =
+            '<p style="color:#92400e;background:#fffbeb;border:1px solid #fcd34d;padding:12px 16px;border-radius:6px">'
+            + 'Paste your Power Automate flow URL into <code>CLIENTS_FLOW_URL</code> in the script.</p>';
+        return;
+    }
+
+    try {
+        var data = await callFlow(CLIENTS_FLOW_URL);
+
+        var clients = (data.clients || []).slice().sort(function(a, b) {
+            return norm(a.Title).localeCompare(norm(b.Title));
+        });
+
+        var attended = data.attended || [];
+        var booked   = data.booked   || [];
+
+        // completed map: normalisedClientName → Map(courseName → formattedDate)
+        var completedMap = {};
+        attended.forEach(function(row) {
+            var client = norm(row.clientname_attended);
+            var course = row.course_attended;
+            var date   = fmtDate(row.course_date_attended || '');
+            if (!client || !course) return;
+            if (!completedMap[client]) completedMap[client] = new Map();
+            completedMap[client].set(course, date);
+        });
+
+        // booked map: normalisedClientName → Map(courseName → formattedDate)
+        var bookedMap = {};
+        booked.forEach(function(row) {
+            var client = norm(row.client);
+            var course = row.course;
+            var date   = fmtDate(row.course_date || '');
+            if (!client || !course) return;
+            if (!bookedMap[client]) bookedMap[client] = new Map();
+            bookedMap[client].set(course, date);
+        });
+
+        // populate location dropdown
+        var locations = [...new Set(clients.map(function(c) { return parseText(c.Location); }).filter(Boolean))].sort();
+        var locSel = document.getElementById('filter-location');
+        locations.forEach(function(loc) {
+            var opt = document.createElement('option');
+            opt.value = opt.textContent = loc;
+            locSel.appendChild(opt);
+        });
+
+        // populate senior dropdown
+        var seniors = [...new Set(clients.map(function(c) { return c.Senior; }).filter(Boolean))].sort();
+        var sel = document.getElementById('filter-senior');
+        seniors.forEach(function(name) {
+            var opt = document.createElement('option');
+            opt.value = opt.textContent = name;
+            sel.appendChild(opt);
+        });
+
+        _dashData = { clients: clients, completedMap: completedMap, bookedMap: bookedMap };
+        applyFilter('');
+
+        document.getElementById('state-loading').style.display = 'none';
+        document.getElementById('state-table').style.display  = 'block';
+
+    } catch (err) {
+        document.getElementById('state-loading').style.display = 'none';
+        var errEl = document.getElementById('state-error');
+        errEl.style.display = 'block';
+        errEl.textContent = 'Could not load data: ' + err.message;
+    }
+}
+
+// ── Clear filters ─────────────────────────────────────────────────────────
+function clearFilters() {
+    document.getElementById('filter-location').value = '';
+    document.getElementById('filter-senior').value   = '';
+    applyFilter('');
+}
+
+// ── Group toggle ───────────────────────────────────────────────────────────
+function toggleGroup(gi) {
+    var th         = groupHeaders[gi];
+    var g          = COURSE_GROUPS[gi];
+    var sessionThs = document.querySelectorAll('th.grp-col-' + gi);
+    if (expandedGroups.has(gi)) {
+        expandedGroups.delete(gi);
+        th.textContent = g.name + ' ▸';
+        sessionThs.forEach(function(el, i) {
+            el.textContent = i + 1;
+            el.classList.remove('expanded');
+        });
+    } else {
+        expandedGroups.add(gi);
+        th.textContent = g.name + ' ▾';
+        sessionThs.forEach(function(el) {
+            el.textContent = el.dataset.shortName;
+            el.classList.add('expanded');
+        });
+    }
+}
+
+// ── Date formatting ────────────────────────────────────────────────────────
+function fmtDate(d) {
+    if (!d) return '';
+    var dt = new Date(d);
+    if (isNaN(dt.getTime())) return String(d);
+    return dt.getDate().toString().padStart(2, '0') + '/'
+         + (dt.getMonth() + 1).toString().padStart(2, '0') + '/'
+         + dt.getFullYear();
+}
+
+// ── Hover tooltip ─────────────────────────────────────────────────────────
+var _tipEl = document.getElementById('tooltip');
+var _tipOn  = false;
+
+function _tipShow(text, e) { _tipEl.textContent = text; _tipEl.style.display = 'block'; _tipOn = true; _tipMove(e); }
+function _tipHide() { _tipEl.style.display = 'none'; _tipOn = false; }
+function _tipMove(e) { _tipEl.style.left = (e.clientX + 14) + 'px'; _tipEl.style.top = (e.clientY - 36) + 'px'; }
+
+document.getElementById('t-body').addEventListener('mouseover', function(e) {
+    var el = e.target;
+    if (el.classList.contains('tick') || el.classList.contains('dot')) {
+        var type = el.dataset.type || (el.classList.contains('tick') ? 'Completed' : 'Booked');
+        var date = el.dataset.date;
+        _tipShow(type + (date ? ' ' + date : ''), e);
+    }
+});
+document.getElementById('t-body').addEventListener('mouseout', function(e) {
+    if (e.target.classList.contains('tick') || e.target.classList.contains('dot')) _tipHide();
+});
+document.addEventListener('mousemove', function(e) { if (_tipOn) _tipMove(e); });
+
+document.addEventListener('DOMContentLoaded', loadAll);
+
+</script>
+
+</body>
+</html>
