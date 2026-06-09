@@ -58,8 +58,19 @@
 
         .tick       { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 4px; background: #dcfce7; color: #15803d; font-size: 0.75rem; font-weight: 700; cursor: pointer; }
         .dot        { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 4px; background: #fef3c7; color: #92400e; font-size: 1.1rem; line-height: 1; cursor: pointer; }
+        .cross      { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 4px; background: #fee2e2; color: #dc2626; font-size: 0.8rem; font-weight: 700; cursor: pointer; }
         .count-done { display: inline-flex; align-items: center; justify-content: center; min-width: 26px; height: 22px; border-radius: 4px; background: #dcfce7; color: #15803d; font-size: 0.75rem; font-weight: 700; padding: 0 4px; }
         .count-book { display: inline-flex; align-items: center; justify-content: center; min-width: 26px; height: 22px; border-radius: 4px; background: #fef3c7; color: #92400e; font-size: 0.75rem; font-weight: 700; padding: 0 4px; }
+
+        /* Action popup (appears when clicking a booked dot) */
+        #action-popup { position: fixed; display: none; background: #fff; border: 1px solid #d1d5db; border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.18); padding: 10px 12px; z-index: 9999; }
+        #action-popup .popup-label { font-size: 0.7rem; color: #6b7280; font-weight: 600; margin-bottom: 8px; }
+        #action-popup .popup-btns  { display: flex; gap: 8px; }
+        .popup-btn          { border: none; border-radius: 4px; padding: 6px 12px; font-size: 0.8rem; font-weight: 600; cursor: pointer; white-space: nowrap; }
+        .popup-btn-complete { background: #dcfce7; color: #15803d; }
+        .popup-btn-complete:hover { background: #bbf7d0; }
+        .popup-btn-dna      { background: #fee2e2; color: #dc2626; }
+        .popup-btn-dna:hover { background: #fecaca; }
 
         tbody tr:nth-child(even) { background: #fafafa; }
         tbody tr:hover { background: #eff6ff; }
@@ -86,7 +97,7 @@
 
 <header>
     <h1>Coaching Progress Dashboard</h1>
-    <span class="version">v1.3</span>
+    <span class="version">v1.4</span>
 </header>
 
 <main>
@@ -108,8 +119,9 @@
             </select>
             <button onclick="clearFilters()" style="font-size:0.82rem;border:1px solid #d1d5db;border-radius:4px;padding:5px 10px;background:#fff;cursor:pointer;color:#6b7280;">Clear filters</button>
             <div class="legend">
-                <span><span class="tick" style="width:16px;height:16px;font-size:0.65rem">✓</span> Completed</span>
-                <span><span class="dot"  style="width:16px;height:16px;font-size:0.9rem">·</span> Booked</span>
+                <span><span class="tick"  style="width:16px;height:16px;font-size:0.65rem">✓</span> Completed</span>
+                <span><span class="dot"   style="width:16px;height:16px;font-size:0.9rem">·</span> Booked</span>
+                <span><span class="cross" style="width:16px;height:16px;font-size:0.7rem">✗</span> Did not attend</span>
             </div>
         </div>
 
@@ -121,6 +133,14 @@
         </div>
     </div>
 </main>
+
+<div id="action-popup">
+    <div class="popup-label">Mark as:</div>
+    <div class="popup-btns">
+        <button class="popup-btn popup-btn-complete" id="popup-complete">&#10003; Completed</button>
+        <button class="popup-btn popup-btn-dna"      id="popup-dna">&#10007; Did not attend</button>
+    </div>
+</div>
 
 <div id="tooltip"></div>
 
@@ -458,14 +478,15 @@ function _tipMove(e) { _tipEl.style.left = (e.clientX + 14) + 'px'; _tipEl.style
 
 document.getElementById('t-body').addEventListener('mouseover', function(e) {
     var el = e.target;
-    if (el.classList.contains('tick') || el.classList.contains('dot')) {
-        var type = el.dataset.type || (el.classList.contains('tick') ? 'Completed' : 'Booked');
+    if (el.classList.contains('tick') || el.classList.contains('dot') || el.classList.contains('cross')) {
+        var type = el.dataset.type || (el.classList.contains('tick') ? 'Completed' : el.classList.contains('cross') ? 'Did not attend' : 'Booked');
         var date = el.dataset.date;
         _tipShow(type + (date ? ' ' + date : ''), e);
     }
 });
 document.getElementById('t-body').addEventListener('mouseout', function(e) {
-    if (e.target.classList.contains('tick') || e.target.classList.contains('dot')) _tipHide();
+    var el = e.target;
+    if (el.classList.contains('tick') || el.classList.contains('dot') || el.classList.contains('cross')) _tipHide();
 });
 document.addEventListener('mousemove', function(e) { if (_tipOn) _tipMove(e); });
 
@@ -487,28 +508,45 @@ function updateRowCounts(row) {
     cells[5].innerHTML = dots  ? '<span class="count-book">' + dots  + '</span>' : '';
 }
 
+// ── Action popup ──────────────────────────────────────────────────────────
+var _popupEl      = null;
+var _activeDot    = null;
+var _activeDotData = null;
+
+function showPopup(dotEl, e) {
+    _activeDot     = dotEl;
+    _activeDotData = { client: dotEl.dataset.client, course: dotEl.dataset.course };
+    var rect = dotEl.getBoundingClientRect();
+    var top  = rect.bottom + 6;
+    var left = rect.left;
+    if (left + 220 > window.innerWidth) left = window.innerWidth - 225;
+    if (top  + 70  > window.innerHeight) top = rect.top - 76;
+    _popupEl.style.top     = top  + 'px';
+    _popupEl.style.left    = left + 'px';
+    _popupEl.style.display = 'block';
+    e.stopPropagation();
+}
+
+function hidePopup() {
+    if (_popupEl) _popupEl.style.display = 'none';
+    _activeDot     = null;
+    _activeDotData = null;
+}
+
+document.addEventListener('click', function(e) {
+    if (_popupEl && _popupEl.style.display === 'block' && !_popupEl.contains(e.target)) {
+        hidePopup();
+    }
+});
+
+// ── Row click handler ─────────────────────────────────────────────────────
 document.getElementById('t-body').addEventListener('click', async function(e) {
     var el  = e.target;
     var row = el.closest('tr');
     if (!row) return;
 
     if (el.classList.contains('dot')) {
-        var client = el.dataset.client;
-        var course = el.dataset.course;
-        var today  = fmtDate(new Date().toISOString());
-        el.style.opacity = '0.35';
-        try {
-            var res = await callWriteFlow({ action: 'complete', clientName: client, course: course, courseDate: today });
-            if (res && !res.ok) throw new Error('HTTP ' + res.status);
-            el.className    = 'tick';
-            el.dataset.type = 'Completed';
-            el.dataset.date = today;
-            el.innerHTML    = '&#10003;';
-            updateRowCounts(row);
-        } catch (err) {
-            alert('Could not save: ' + err.message);
-        }
-        el.style.opacity = '';
+        showPopup(el, e);
 
     } else if (el.classList.contains('tick')) {
         var client = el.dataset.client;
@@ -527,10 +565,77 @@ document.getElementById('t-body').addEventListener('click', async function(e) {
             alert('Could not save: ' + err.message);
         }
         el.style.opacity = '';
+
+    } else if (el.classList.contains('cross')) {
+        var client = el.dataset.client;
+        var course = el.dataset.course;
+        if (!client) return;
+        el.style.opacity = '0.35';
+        try {
+            var res = await callWriteFlow({ action: 'undna', clientName: client, course: course });
+            if (res && !res.ok) throw new Error('HTTP ' + res.status);
+            el.className    = 'dot';
+            el.dataset.type = 'Booked';
+            el.dataset.date = '';
+            el.innerHTML    = '&middot;';
+            updateRowCounts(row);
+        } catch (err) {
+            alert('Could not save: ' + err.message);
+        }
+        el.style.opacity = '';
     }
 });
 
-document.addEventListener('DOMContentLoaded', loadAll);
+document.addEventListener('DOMContentLoaded', function() {
+    _popupEl = document.getElementById('action-popup');
+
+    document.getElementById('popup-complete').addEventListener('click', async function() {
+        if (!_activeDot) return;
+        var el     = _activeDot;
+        var row    = el.closest('tr');
+        var client = _activeDotData.client;
+        var course = _activeDotData.course;
+        var today  = fmtDate(new Date().toISOString());
+        hidePopup();
+        el.style.opacity = '0.35';
+        try {
+            var res = await callWriteFlow({ action: 'complete', clientName: client, course: course, courseDate: today });
+            if (res && !res.ok) throw new Error('HTTP ' + res.status);
+            el.className    = 'tick';
+            el.dataset.type = 'Completed';
+            el.dataset.date = today;
+            el.innerHTML    = '&#10003;';
+            if (row) updateRowCounts(row);
+        } catch (err) {
+            alert('Could not save: ' + err.message);
+        }
+        el.style.opacity = '';
+    });
+
+    document.getElementById('popup-dna').addEventListener('click', async function() {
+        if (!_activeDot) return;
+        var el     = _activeDot;
+        var row    = el.closest('tr');
+        var client = _activeDotData.client;
+        var course = _activeDotData.course;
+        hidePopup();
+        el.style.opacity = '0.35';
+        try {
+            var res = await callWriteFlow({ action: 'dna', clientName: client, course: course });
+            if (res && !res.ok) throw new Error('HTTP ' + res.status);
+            el.className    = 'cross';
+            el.dataset.type = 'Did not attend';
+            el.dataset.date = '';
+            el.innerHTML    = '&#10007;';
+            if (row) updateRowCounts(row);
+        } catch (err) {
+            alert('Could not save: ' + err.message);
+        }
+        el.style.opacity = '';
+    });
+
+    loadAll();
+});
 
 </script>
 
