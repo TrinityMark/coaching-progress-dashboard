@@ -97,7 +97,7 @@
 
 <header>
     <h1>Coaching Progress Dashboard</h1>
-    <span class="version">v1.4</span>
+    <span class="version">v1.5</span>
 </header>
 
 <main>
@@ -302,7 +302,8 @@ function applyFilter(seniorFilter) {
 
             if (isKs) {
                 if (hasCompleted) {
-                    var yr = parseInt((completed.get(course) || '').split('/')[2]) || 0;
+                    var ksInfo = completed.get(course) || {};
+                    var yr = parseInt((ksInfo.date || '').split('/')[2]) || 0;
                     hasCompleted = yr === ksYear;
                 }
                 if (hasBooked) {
@@ -312,10 +313,15 @@ function applyFilter(seniorFilter) {
             }
 
             if (hasCompleted) {
-                doneCount++;
-                var d  = escapeHtml(completed.get(course) || '');
+                var info   = completed.get(course) || {};
+                var status = info.status || 'complete';
+                var d  = escapeHtml(info.date || '');
                 var cl = escapeHtml(c.Title);
                 var cr = escapeHtml(course);
+                if (status === 'dna') {
+                    return '<td class="' + cls + '"><span class="cross" data-date="' + d + '" data-type="Did not attend" data-client="' + cl + '" data-course="' + cr + '">&#10007;</span></td>';
+                }
+                doneCount++;
                 return '<td class="' + cls + '"><span class="tick" data-date="' + d + '" data-type="Completed" data-client="' + cl + '" data-course="' + cr + '">&#10003;</span></td>';
             }
             if (hasBooked) {
@@ -326,7 +332,8 @@ function applyFilter(seniorFilter) {
                 return '<td class="' + cls + '"><span class="dot" data-date="' + d + '" data-type="Booked" data-client="' + cl + '" data-course="' + cr + '">&middot;</span></td>';
             }
             if (isKs && completed.has(course)) {
-                var prevDate = escapeHtml(completed.get(course) || '');
+                var prevInfo = completed.get(course) || {};
+                var prevDate = escapeHtml(prevInfo.date || '');
                 return '<td class="' + cls + ' ks-prior" title="Previously attended ' + prevDate + '"></td>';
             }
             return '<td class="' + cls + '"></td>';
@@ -375,15 +382,16 @@ async function loadAll() {
         var attended = data.attended || [];
         var booked   = data.booked   || [];
 
-        // completed map: normalisedClientName → Map(courseName → formattedDate)
+        // completed map: normalisedClientName → Map(courseName → { date, status })
         var completedMap = {};
         attended.forEach(function(row) {
             var client = norm(row.clientname_attended);
             var course = row.course_attended;
             var date   = fmtDate(row.course_date_attended || '');
+            var status = (row.course_status || '').toLowerCase();
             if (!client || !course) return;
             if (!completedMap[client]) completedMap[client] = new Map();
-            completedMap[client].set(course, date);
+            completedMap[client].set(course, { date: date, status: status });
         });
 
         // booked map: normalisedClientName → Map(courseName → formattedDate)
