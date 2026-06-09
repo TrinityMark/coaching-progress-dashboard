@@ -56,8 +56,8 @@
         td.session-td { text-align: center; padding: 4px 2px; min-width: 36px; border-left: 1px solid #f3f4f6; }
         td.ks-prior { background: #f0fdf4; }
 
-        .tick       { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 4px; background: #dcfce7; color: #15803d; font-size: 0.75rem; font-weight: 700; }
-        .dot        { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 4px; background: #fef3c7; color: #92400e; font-size: 1.1rem; line-height: 1; }
+        .tick       { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 4px; background: #dcfce7; color: #15803d; font-size: 0.75rem; font-weight: 700; cursor: pointer; }
+        .dot        { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 4px; background: #fef3c7; color: #92400e; font-size: 1.1rem; line-height: 1; cursor: pointer; }
         .count-done { display: inline-flex; align-items: center; justify-content: center; min-width: 26px; height: 22px; border-radius: 4px; background: #dcfce7; color: #15803d; font-size: 0.75rem; font-weight: 700; padding: 0 4px; }
         .count-book { display: inline-flex; align-items: center; justify-content: center; min-width: 26px; height: 22px; border-radius: 4px; background: #fef3c7; color: #92400e; font-size: 0.75rem; font-weight: 700; padding: 0 4px; }
 
@@ -86,7 +86,7 @@
 
 <header>
     <h1>Coaching Progress Dashboard</h1>
-    <span class="version">v1.1</span>
+    <span class="version">v1.2</span>
 </header>
 
 <main>
@@ -293,13 +293,17 @@ function applyFilter(seniorFilter) {
 
             if (hasCompleted) {
                 doneCount++;
-                var d = escapeHtml(completed.get(course) || '');
-                return '<td class="' + cls + '"><span class="tick" data-date="' + d + '" data-type="Completed">&#10003;</span></td>';
+                var d  = escapeHtml(completed.get(course) || '');
+                var cl = escapeHtml(c.Title);
+                var cr = escapeHtml(course);
+                return '<td class="' + cls + '"><span class="tick" data-date="' + d + '" data-type="Completed" data-client="' + cl + '" data-course="' + cr + '">&#10003;</span></td>';
             }
             if (hasBooked) {
                 bookedCount++;
-                var d = escapeHtml(booked.get(course) || '');
-                return '<td class="' + cls + '"><span class="dot" data-date="' + d + '" data-type="Booked">&middot;</span></td>';
+                var d  = escapeHtml(booked.get(course) || '');
+                var cl = escapeHtml(c.Title);
+                var cr = escapeHtml(course);
+                return '<td class="' + cls + '"><span class="dot" data-date="' + d + '" data-type="Booked" data-client="' + cl + '" data-course="' + cr + '">&middot;</span></td>';
             }
             if (isKs && completed.has(course)) {
                 var prevDate = escapeHtml(completed.get(course) || '');
@@ -464,6 +468,67 @@ document.getElementById('t-body').addEventListener('mouseout', function(e) {
     if (e.target.classList.contains('tick') || e.target.classList.contains('dot')) _tipHide();
 });
 document.addEventListener('mousemove', function(e) { if (_tipOn) _tipMove(e); });
+
+// ── Write flow ────────────────────────────────────────────────────────────
+function callWriteFlow(params) {
+    var url = typeof WRITE_FLOW_URL !== 'undefined' ? WRITE_FLOW_URL : '';
+    if (!url) return Promise.reject(new Error('WRITE_FLOW_URL not configured'));
+    var qs = Object.keys(params).map(function(k) {
+        return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
+    }).join('&');
+    return fetch(url + '&' + qs, { method: 'POST' });
+}
+
+function updateRowCounts(row) {
+    var ticks = row.querySelectorAll('.tick').length;
+    var dots  = row.querySelectorAll('.dot').length;
+    var cells = row.querySelectorAll('td');
+    cells[4].innerHTML = ticks ? '<span class="count-done">' + ticks + '</span>' : '';
+    cells[5].innerHTML = dots  ? '<span class="count-book">' + dots  + '</span>' : '';
+}
+
+document.getElementById('t-body').addEventListener('click', async function(e) {
+    var el  = e.target;
+    var row = el.closest('tr');
+    if (!row) return;
+
+    if (el.classList.contains('dot')) {
+        var client = el.dataset.client;
+        var course = el.dataset.course;
+        var today  = fmtDate(new Date().toISOString());
+        el.style.opacity = '0.35';
+        try {
+            var res = await callWriteFlow({ action: 'complete', clientName: client, course: course, courseDate: today });
+            if (res && !res.ok) throw new Error('HTTP ' + res.status);
+            el.className    = 'tick';
+            el.dataset.type = 'Completed';
+            el.dataset.date = today;
+            el.innerHTML    = '&#10003;';
+            updateRowCounts(row);
+        } catch (err) {
+            alert('Could not save: ' + err.message);
+        }
+        el.style.opacity = '';
+
+    } else if (el.classList.contains('tick')) {
+        var client = el.dataset.client;
+        var course = el.dataset.course;
+        if (!client) return;
+        el.style.opacity = '0.35';
+        try {
+            var res = await callWriteFlow({ action: 'uncomplete', clientName: client, course: course });
+            if (res && !res.ok) throw new Error('HTTP ' + res.status);
+            el.className    = 'dot';
+            el.dataset.type = 'Booked';
+            el.dataset.date = '';
+            el.innerHTML    = '&middot;';
+            updateRowCounts(row);
+        } catch (err) {
+            alert('Could not save: ' + err.message);
+        }
+        el.style.opacity = '';
+    }
+});
 
 document.addEventListener('DOMContentLoaded', loadAll);
 
