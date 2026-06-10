@@ -34,22 +34,35 @@
         .legend span { display: flex; align-items: center; gap: 5px; }
 
         /* Table */
-        .table-wrap { overflow-x: auto; background: #fff; border: 1px solid #e5e7eb; border-radius: 6px; }
+        .table-wrap { overflow: auto; max-height: calc(100vh - 230px); background: #fff; border: 1px solid #e5e7eb; border-radius: 6px; }
         table { border-collapse: collapse; font-size: 0.82rem; }
 
         th.fixed-th {
             text-align: left; padding: 9px 14px; background: #f9fafb; color: #374151;
             font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em;
             border-bottom: 2px solid #e5e7eb; white-space: nowrap;
+            position: sticky; top: 0; z-index: 6;
         }
         th.group-th {
             text-align: center; padding: 6px 4px; font-size: 0.72rem; font-weight: 600; color: #fff;
             border-left: 1px solid rgba(255,255,255,0.25); border-bottom: 1px solid #e5e7eb;
             white-space: nowrap;
+            position: sticky; top: 0; z-index: 5;
         }
+        th.count-th {
+            text-align: center; padding: 1px 2px; white-space: nowrap;
+            border-left: 1px solid #f0f0f0;
+            font-size: 0.65rem; font-weight: 700;
+            position: sticky;
+        }
+        th.count-th-done { background: #dcfce7; color: #15803d; top: var(--r1h, 28px); z-index: 4; }
+        th.count-th-book { background: #fef3c7; color: #92400e; top: var(--r2h, 44px); z-index: 3; }
+        th.count-th-notcomp { background: #fee2e2; color: #dc2626; top: var(--r3h, 60px); z-index: 2; border-bottom: 2px solid #e5e7eb; }
         th.session-th {
             text-align: center; padding: 4px 3px; font-size: 0.7rem; color: #6b7280; font-weight: 600;
             min-width: 36px; border-left: 1px solid #f0f0f0; border-bottom: 2px solid #e5e7eb;
+            background: #fff;
+            position: sticky; top: var(--r4h, 76px); z-index: 1;
         }
 
         td { padding: 8px 14px; border-bottom: 1px solid #f3f4f6; white-space: nowrap; color: #374151; }
@@ -97,7 +110,7 @@
 
 <header>
     <h1>Coaching Progress Dashboard</h1>
-    <span class="version">v1.5</span>
+    <span class="version">v1.7</span>
 </header>
 
 <main>
@@ -116,6 +129,14 @@
             </select>
             <select id="filter-senior" onchange="applyFilter(this.value)">
                 <option value="">All Seniors</option>
+            </select>
+            <select id="filter-course" onchange="onCourseFilterChange()">
+                <option value="">All Courses</option>
+            </select>
+            <select id="filter-completion" onchange="applyFilter(document.getElementById('filter-senior').value)" style="display:none">
+                <option value="">Any status</option>
+                <option value="completed">Completed</option>
+                <option value="notcompleted">Not Completed</option>
             </select>
             <button onclick="clearFilters()" style="font-size:0.82rem;border:1px solid #d1d5db;border-radius:4px;padding:5px 10px;background:#fff;cursor:pointer;color:#6b7280;">Clear filters</button>
             <div class="legend">
@@ -229,20 +250,21 @@ var expandedGroups = new Set();
     ['Client', 'Location', 'Package', 'Senior'].forEach(function(label) {
         var th = document.createElement('th');
         th.className = 'fixed-th';
-        th.rowSpan = 2;
+        th.rowSpan = 5;
         th.textContent = label;
         r1.appendChild(th);
     });
     ['Total Completed', 'Total Booked'].forEach(function(label) {
         var th = document.createElement('th');
         th.className = 'fixed-th';
-        th.rowSpan = 2;
+        th.rowSpan = 5;
         th.style.textAlign = 'center';
         th.style.whiteSpace = 'normal';
         th.style.maxWidth = '85px';
         th.textContent = label;
         r1.appendChild(th);
     });
+    var courseSel = document.getElementById('filter-course');
     COURSE_GROUPS.forEach(function(g, gi) {
         var th = document.createElement('th');
         th.className = 'group-th';
@@ -252,17 +274,54 @@ var expandedGroups = new Set();
         th.addEventListener('click', function() { toggleGroup(gi); });
         groupHeaders.push(th);
         r1.appendChild(th);
+
+        var optgroup = document.createElement('optgroup');
+        optgroup.label = g.name;
+        g.courses.forEach(function(course) {
+            var opt = document.createElement('option');
+            opt.value = course;
+            opt.textContent = course.split(',').pop().trim();
+            optgroup.appendChild(opt);
+        });
+        courseSel.appendChild(optgroup);
     });
 
-    var r2 = thead.insertRow();
+    var r2 = thead.insertRow(); // completed counts
+    var r3 = thead.insertRow(); // booked counts
+    var r4 = thead.insertRow(); // not completed counts
+    var r5 = thead.insertRow(); // session numbers
+    var ci = 0;
     COURSE_GROUPS.forEach(function(g, gi) {
         g.courses.forEach(function(course, i) {
-            var th = document.createElement('th');
-            th.className = 'session-th grp-col-' + gi;
-            th.title = course;
-            th.textContent = i + 1;
-            th.dataset.shortName = course.split(',').pop().trim();
-            r2.appendChild(th);
+            var thDone = document.createElement('th');
+            thDone.className = 'count-th count-th-done grp-col-' + gi;
+            thDone.id = 'grp-done-' + ci;
+            thDone.title = 'Completed';
+            thDone.textContent = '0';
+            r2.appendChild(thDone);
+
+            var thBook = document.createElement('th');
+            thBook.className = 'count-th count-th-book grp-col-' + gi;
+            thBook.id = 'grp-book-' + ci;
+            thBook.title = 'Booked';
+            thBook.textContent = '0';
+            r3.appendChild(thBook);
+
+            var thNotComp = document.createElement('th');
+            thNotComp.className = 'count-th count-th-notcomp grp-col-' + gi;
+            thNotComp.id = 'grp-notcomp-' + ci;
+            thNotComp.title = 'Not Completed';
+            thNotComp.textContent = '0';
+            r4.appendChild(thNotComp);
+
+            var thSession = document.createElement('th');
+            thSession.className = 'session-th grp-col-' + gi;
+            thSession.title = course;
+            thSession.textContent = i + 1;
+            thSession.dataset.shortName = course.split(',').pop().trim();
+            r5.appendChild(thSession);
+
+            ci++;
         });
     });
 })();
@@ -278,23 +337,27 @@ function applyFilter(seniorFilter) {
 
     var sf = (seniorFilter || '').trim();
     var lf = (document.getElementById('filter-location').value || '').trim();
+    var cf = (document.getElementById('filter-course').value || '').trim();
+    var compFilter = (document.getElementById('filter-completion').value || '').trim();
+
+    var ksYear = new Date().getFullYear();
+
     var filtered = clients
         .filter(function(c) { return !sf || (c.Senior || '') === sf; })
         .filter(function(c) { return !lf || parseText(c.Location) === lf; });
 
-    document.getElementById('t-body').innerHTML = filtered.map(function(c) {
+    var rows = filtered.map(function(c) {
         var clientNorm = norm(c.Title);
         var completed  = completedMap[clientNorm] || new Map();
         var booked     = bookedMap[clientNorm]    || new Map();
 
-        var ksYear = new Date().getFullYear();
-
         var doneCount   = 0;
         var bookedCount = 0;
+        var courseCounts = ALL_COURSES.map(function() { return { done: 0, booked: 0 }; });
 
         var sessionCells = ALL_COURSES.map(function(course, ci) {
             var gi  = courseGroupIdx[ci];
-            var cls = 'session-td grp-col-' + gi;
+            var cls = 'session-td grp-col-' + gi + ' course-col-' + ci;
             var isKs = gi === kickstartGroupIdx;
 
             var hasCompleted = completed.has(course);
@@ -322,10 +385,12 @@ function applyFilter(seniorFilter) {
                     return '<td class="' + cls + '"><span class="cross" data-date="' + d + '" data-type="Did not attend" data-client="' + cl + '" data-course="' + cr + '">&#10007;</span></td>';
                 }
                 doneCount++;
+                courseCounts[ci].done++;
                 return '<td class="' + cls + '"><span class="tick" data-date="' + d + '" data-type="Completed" data-client="' + cl + '" data-course="' + cr + '">&#10003;</span></td>';
             }
             if (hasBooked) {
                 bookedCount++;
+                courseCounts[ci].booked++;
                 var d  = escapeHtml(booked.get(course) || '');
                 var cl = escapeHtml(c.Title);
                 var cr = escapeHtml(course);
@@ -339,7 +404,7 @@ function applyFilter(seniorFilter) {
             return '<td class="' + cls + '"></td>';
         }).join('');
 
-        return '<tr>'
+        var html = '<tr>'
             + '<td>' + escapeHtml(c.Title)                + '</td>'
             + '<td>' + escapeHtml(parseText(c.Location))  + '</td>'
             + '<td>' + escapeHtml(parseText(c.Package))   + '</td>'
@@ -348,10 +413,41 @@ function applyFilter(seniorFilter) {
             + '<td style="text-align:center">' + (bookedCount ? '<span class="count-book">' + bookedCount + '</span>' : '') + '</td>'
             + sessionCells
             + '</tr>';
-    }).join('');
+
+        var courseMatch = true;
+        if (cf) {
+            var info        = completed.get(cf) || {};
+            var isCompleted = completed.has(cf) && (info.status || 'complete') !== 'dna';
+            if (compFilter === 'completed') {
+                courseMatch = isCompleted;
+            } else if (compFilter === 'notcompleted') {
+                courseMatch = !isCompleted;
+            } else {
+                courseMatch = completed.has(cf) || booked.has(cf);
+            }
+        }
+
+        return { html: html, courseMatch: courseMatch, courseCounts: courseCounts };
+    });
+
+    var visible = !cf ? rows : rows.filter(function(r) { return r.courseMatch; });
+
+    document.getElementById('t-body').innerHTML = visible.map(function(r) { return r.html; }).join('');
+
+    ALL_COURSES.forEach(function(course, ci) {
+        var totals = { done: 0, booked: 0 };
+        visible.forEach(function(r) {
+            totals.done   += r.courseCounts[ci].done;
+            totals.booked += r.courseCounts[ci].booked;
+        });
+        var notCompleted = visible.length - totals.done - totals.booked;
+        document.getElementById('grp-done-'    + ci).textContent = totals.done;
+        document.getElementById('grp-book-'    + ci).textContent = totals.booked;
+        document.getElementById('grp-notcomp-' + ci).textContent = notCompleted;
+    });
 
     var countEl = document.getElementById('client-count');
-    countEl.textContent = filtered.length + ' client' + (filtered.length !== 1 ? 's' : '')
+    countEl.textContent = visible.length + ' client' + (visible.length !== 1 ? 's' : '')
         + (sf ? ' · ' + sf : '');
 }
 
@@ -428,6 +524,7 @@ async function loadAll() {
 
         document.getElementById('state-loading').style.display = 'none';
         document.getElementById('state-table').style.display  = 'block';
+        requestAnimationFrame(updateStickyOffsets);
 
     } catch (err) {
         document.getElementById('state-loading').style.display = 'none';
@@ -439,16 +536,28 @@ async function loadAll() {
 
 // ── Clear filters ─────────────────────────────────────────────────────────
 function clearFilters() {
-    document.getElementById('filter-location').value = '';
-    document.getElementById('filter-senior').value   = '';
+    document.getElementById('filter-location').value   = '';
+    document.getElementById('filter-course').value     = '';
+    document.getElementById('filter-completion').value = '';
+    document.getElementById('filter-completion').style.display = 'none';
+    document.getElementById('filter-senior').value     = '';
     applyFilter('');
+}
+
+// ── Course filter change ───────────────────────────────────────────────────
+function onCourseFilterChange() {
+    var cf      = document.getElementById('filter-course').value;
+    var compSel = document.getElementById('filter-completion');
+    compSel.style.display = cf ? '' : 'none';
+    if (!cf) compSel.value = '';
+    applyFilter(document.getElementById('filter-senior').value);
 }
 
 // ── Group toggle ───────────────────────────────────────────────────────────
 function toggleGroup(gi) {
     var th         = groupHeaders[gi];
     var g          = COURSE_GROUPS[gi];
-    var sessionThs = document.querySelectorAll('th.grp-col-' + gi);
+    var sessionThs = document.querySelectorAll('th.session-th.grp-col-' + gi);
     if (expandedGroups.has(gi)) {
         expandedGroups.delete(gi);
         th.textContent = g.name + ' ▸';
@@ -464,6 +573,32 @@ function toggleGroup(gi) {
             el.classList.add('expanded');
         });
     }
+    requestAnimationFrame(updateStickyOffsets);
+}
+
+// ── Sticky header offsets ────────────────────────────────────────────────
+function updateStickyOffsets() {
+    var theadRows = document.querySelectorAll('#t-head tr');
+    if (theadRows.length < 4) return;
+    var cum = 0;
+    for (var i = 0; i < 4; i++) {
+        cum += theadRows[i].getBoundingClientRect().height;
+        document.documentElement.style.setProperty('--r' + (i + 1) + 'h', cum + 'px');
+    }
+}
+window.addEventListener('resize', updateStickyOffsets);
+
+// ── Group counter helpers ────────────────────────────────────────────────
+function courseIndexOfCell(el) {
+    var td = el.closest('td');
+    var m = td && td.className.match(/course-col-(\d+)/);
+    return m ? parseInt(m[1], 10) : -1;
+}
+function adjustGroupCount(ci, type, delta) {
+    if (ci < 0) return;
+    var el = document.getElementById('grp-' + type + '-' + ci);
+    if (!el) return;
+    el.textContent = Math.max(0, parseInt(el.textContent, 10) + delta);
 }
 
 // ── Date formatting ────────────────────────────────────────────────────────
@@ -560,6 +695,7 @@ document.getElementById('t-body').addEventListener('click', async function(e) {
         var client = el.dataset.client;
         var course = el.dataset.course;
         if (!client) return;
+        var ci = courseIndexOfCell(el);
         el.style.opacity = '0.35';
         try {
             var res = await callWriteFlow({ action: 'uncomplete', clientName: client, course: course });
@@ -569,6 +705,8 @@ document.getElementById('t-body').addEventListener('click', async function(e) {
             el.dataset.date = '';
             el.innerHTML    = '&middot;';
             updateRowCounts(row);
+            adjustGroupCount(ci, 'done', -1);
+            adjustGroupCount(ci, 'book', 1);
         } catch (err) {
             alert('Could not save: ' + err.message);
         }
@@ -578,6 +716,7 @@ document.getElementById('t-body').addEventListener('click', async function(e) {
         var client = el.dataset.client;
         var course = el.dataset.course;
         if (!client) return;
+        var ci = courseIndexOfCell(el);
         el.style.opacity = '0.35';
         try {
             var res = await callWriteFlow({ action: 'undna', clientName: client, course: course });
@@ -587,6 +726,8 @@ document.getElementById('t-body').addEventListener('click', async function(e) {
             el.dataset.date = '';
             el.innerHTML    = '&middot;';
             updateRowCounts(row);
+            adjustGroupCount(ci, 'notcomp', -1);
+            adjustGroupCount(ci, 'book', 1);
         } catch (err) {
             alert('Could not save: ' + err.message);
         }
@@ -604,6 +745,7 @@ document.addEventListener('DOMContentLoaded', function() {
         var client = _activeDotData.client;
         var course = _activeDotData.course;
         var today  = fmtDate(new Date().toISOString());
+        var ci     = courseIndexOfCell(el);
         hidePopup();
         el.style.opacity = '0.35';
         try {
@@ -614,6 +756,8 @@ document.addEventListener('DOMContentLoaded', function() {
             el.dataset.date = today;
             el.innerHTML    = '&#10003;';
             if (row) updateRowCounts(row);
+            adjustGroupCount(ci, 'book', -1);
+            adjustGroupCount(ci, 'done', 1);
         } catch (err) {
             alert('Could not save: ' + err.message);
         }
@@ -626,6 +770,7 @@ document.addEventListener('DOMContentLoaded', function() {
         var row    = el.closest('tr');
         var client = _activeDotData.client;
         var course = _activeDotData.course;
+        var ci     = courseIndexOfCell(el);
         hidePopup();
         el.style.opacity = '0.35';
         try {
@@ -636,6 +781,8 @@ document.addEventListener('DOMContentLoaded', function() {
             el.dataset.date = '';
             el.innerHTML    = '&#10007;';
             if (row) updateRowCounts(row);
+            adjustGroupCount(ci, 'book', -1);
+            adjustGroupCount(ci, 'notcomp', 1);
         } catch (err) {
             alert('Could not save: ' + err.message);
         }
